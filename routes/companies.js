@@ -1,5 +1,6 @@
 
 const express = require("express");
+const slugify = require('slugify');
 const router = new express.Router();
 const db = require('../db');
 
@@ -22,13 +23,13 @@ router.get("/", async function(req, res, next) {
 .post("/", async function(req, res, next) {
 
     try {
-        const { code, name, description } = req.body;
+        const { name, description } = req.body;
     
         const result = await db.query(
               `INSERT INTO companies (code, name, description) 
                VALUES ($1, $2, $3)
                RETURNING code, name, description`,
-            [code, name, description]
+            [slugify(name), name, description]
         );
     
         return res.status(201).json({company : result.rows[0]});
@@ -49,17 +50,30 @@ router.get('/:code', async (req, res, next) => {
              FROM companies
              WHERE code='${code}'`);
 
+        if(results.rows.length === 0){
+            throw new ExpressError("No such company", 404);
+        }
+
         const invoices = await db.query(
             `SELECT id, comp_code, amt, paid, add_date, paid_date 
-            FROM invoices
-            WHERE comp_code='${code}'`);
+                FROM invoices
+                WHERE comp_code='${code}'`);
+
+        const industries = await db.query(
+            `SELECT i.industry
+                FROM companies AS c
+                    LEFT JOIN company_industry AS ci
+                        ON c.code = ci.company_code
+                    LEFT JOIN industries AS i
+                        ON ci.industry_code = i.code
+                WHERE c.code='${code}'`);
 
         results.invoices = invoices;
+        results.industries = industries;
       
         return res.json({company : results.rows[0]});
     }
     catch (err) {
-        err.status = 404;
         return next(err);
     
     }
@@ -77,12 +91,15 @@ router.get('/:code', async (req, res, next) => {
                RETURNING code, name, description`,
             [name, description, req.params.code]
         );
+        
+        if(result.rows.length === 0){
+            throw new ExpressError("No such company", 404);
+        }
     
         return res.json({company : result.rows[0]});
       }
     
       catch (err) {
-        err.status = 404;
         return next(err);
       }
     
@@ -96,11 +113,14 @@ router.get('/:code', async (req, res, next) => {
             "DELETE FROM companies WHERE code = $1",
             [req.params.code]
         );
+
+        if(result.rows.length === 0){
+            throw new ExpressError("No such company", 404);
+        }
     
         return res.json({"status" : "deleted"});
     }
     catch (err) {
-        err.status = 404;
         return next(err);
     }
 
